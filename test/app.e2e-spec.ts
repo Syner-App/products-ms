@@ -1,29 +1,60 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { App } from 'supertest/types';
+import { INestMicroservice } from '@nestjs/common';
+import { ClientGrpc, ClientsModule, Transport } from '@nestjs/microservices';
+import { status } from '@grpc/grpc-js';
+import { join } from 'path';
+import { firstValueFrom } from 'rxjs';
 import { AppModule } from './../src/app.module.js';
+import {
+  PRODUCTS_PACKAGE_NAME,
+  PRODUCTS_SERVICE_NAME,
+  ProductsServiceClient,
+} from './../src/generated/proto/products.ts';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+const grpcOptions = {
+  package: PRODUCTS_PACKAGE_NAME,
+  protoPath: join(import.meta.dirname, '../src/proto/products.proto'),
+  url: 'localhost:50099',
+};
 
-  beforeEach(async () => {
+describe('ProductsService (gRPC e2e)', () => {
+  let app: INestMicroservice;
+  let productsClient: ProductsServiceClient;
+
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [
+        AppModule,
+        ClientsModule.register([
+          { name: 'PRODUCTS_CLIENT', transport: Transport.GRPC, options: grpcOptions },
+        ]),
+      ],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
-    await app.init();
+    app = moduleFixture.createNestMicroservice({
+      transport: Transport.GRPC,
+      options: grpcOptions,
+    });
+    await app.listen();
+
+    const client = app.get<ClientGrpc>('PRODUCTS_CLIENT');
+    productsClient = client.getService<ProductsServiceClient>(PRODUCTS_SERVICE_NAME);
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
-  });
-
-  afterEach(async () => {
+  afterAll(async () => {
     await app.close();
+  });
+
+  it('FindAll returns a paginated product list', async () => {
+    const result = await firstValueFrom(productsClient.findAll({ page: 1, limit: 5 }));
+
+    expect(result.data.length).toBeLessThanOrEqual(5);
+    expect(result.meta).toMatchObject({ page: 1 });
+  });
+
+  it('FindOne returns NOT_FOUND for a missing product', async () => {
+    await expect(firstValueFrom(productsClient.findOne({ id: 999999 }))).rejects.toMatchObject({
+      code: status.NOT_FOUND,
+    });
   });
 });

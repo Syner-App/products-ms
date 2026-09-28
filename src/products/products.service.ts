@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { RpcException } from '@nestjs/microservices';
+import { status } from '@grpc/grpc-js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { PrismaService } from '../prisma-service/prisma-service.service.ts';
@@ -42,12 +44,17 @@ export class ProductsService {
   async findOne(id: number) {
     const product = await this.prisma.product.findUnique({ where: { id: id, available: true } });
 
-    if (!product) throw new NotFoundException(`Product with id: #${id} not found`);
+    if (!product) {
+      throw new RpcException({
+        code: status.NOT_FOUND,
+        message: `Product with id: #${id} not found`,
+      });
+    }
 
     return product;
   }
 
-  async update(id: number, updateProductDto: UpdateProductDto) {
+  async update(id: number, updateProductDto: Omit<UpdateProductDto, 'id'>) {
     await this.findOne(id);
 
     return await this.prisma.product.update({
