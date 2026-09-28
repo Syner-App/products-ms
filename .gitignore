@@ -68,3 +68,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .windsurf/
 
 dev.db
+
+skills-lock.json
+slq/
