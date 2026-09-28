@@ -6,6 +6,7 @@ import { status } from '@grpc/grpc-js';
 import { join } from 'path';
 import { envs } from './config/envs.ts';
 import { PRODUCTS_PACKAGE_NAME } from './generated/proto/products.ts';
+import { PrismaExceptionFilter } from './common/index.ts';
 
 async function bootstrap() {
   const logger = new Logger('Main')
@@ -32,6 +33,8 @@ async function bootstrap() {
         }),
     })
   )
+  app.useGlobalFilters(new PrismaExceptionFilter());
+
   await app.listen();
   logger.log(`Products MS (gRPC) listening on port ${envs.port}`);
 }
