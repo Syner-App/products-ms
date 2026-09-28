@@ -60,3 +60,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # CodeGraph local index
 /.codegraph
+
+/src/generated/prisma
+
+.agents/
+.windsurf/
