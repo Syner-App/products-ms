@@ -3,6 +3,7 @@ import { RpcException } from '@nestjs/microservices';
 import { status } from '@grpc/grpc-js';
 import { ProductsService, purchaseOrderReceivedMotivo } from './products.service.js';
 import { PrismaService } from '../prisma/prisma-service.service.ts';
+import { AlertsClient } from '../alerts/alerts.client.ts';
 
 const purchaseOrderId = '6f1c1c9e-2f5b-4c1a-9a47-6a2b1f3c8d10';
 
@@ -33,17 +34,22 @@ describe('ProductsService', () => {
       fields: { stock_minimo: 'stock_minimo_ref' },
     },
     productHistory: { create: vi.fn(), findFirst: vi.fn() },
-    alerts: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
     // Interactive transactions run the callback with the same mock
     $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
   };
 
+  const alertsClient = { syncLowStock: vi.fn() };
+
   beforeEach(async () => {
     vi.clearAllMocks();
-    prisma.alerts.findFirst.mockResolvedValue(null);
+    alertsClient.syncLowStock.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ProductsService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        ProductsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AlertsClient, useValue: alertsClient },
+      ],
     }).compile();
 
     service = module.get<ProductsService>(ProductsService);
@@ -102,9 +108,10 @@ describe('ProductsService', () => {
 
       expect((error as RpcException).getError()).toMatchObject({ code: status.FAILED_PRECONDITION });
       expect(prisma.productHistory.create).not.toHaveBeenCalled();
+      expect(alertsClient.syncLowStock).not.toHaveBeenCalled();
     });
 
-    it('records a salida, its history and opens the low stock alert', async () => {
+    it('records a salida, its history and syncs the alert after the commit', async () => {
       prisma.product.findUnique.mockResolvedValue({ ...yogur, stock_actual: 40 });
       prisma.product.updateMany.mockResolvedValue({ count: 1 });
       prisma.product.findUniqueOrThrow.mockResolvedValue({ ...yogur, stock_actual: 20 });
@@ -118,13 +125,14 @@ describe('ProductsService', () => {
       expect(prisma.productHistory.create).toHaveBeenCalledWith({
         data: { product_id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' },
       });
-      expect(prisma.alerts.create).toHaveBeenCalled();
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
+      expect(alertsClient.syncLowStock.mock.invocationCallOrder[0])
+        .toBeGreaterThan(prisma.$transaction.mock.invocationCallOrder[0]);
     });
 
-    it('records an entrada and resolves the active alert', async () => {
+    it('records an entrada and syncs the alert', async () => {
       prisma.product.findUnique.mockResolvedValue(yogur);
       prisma.product.findUniqueOrThrow.mockResolvedValue({ ...yogur, stock_actual: 65 });
-      prisma.alerts.findFirst.mockResolvedValue({ id: 'alert-1' });
 
       await service.adjustStock({ id: 4, tipo: 'entrada', cantidad: 50, motivo: 'Reposición' });
 
@@ -132,9 +140,19 @@ describe('ProductsService', () => {
         where: { id: 4 },
         data: { stock_actual: { increment: 50 } },
       });
-      expect(prisma.alerts.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { estado: 'RESUELTA' } }),
-      );
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
+    });
+
+    it('propagates a failed alert sync after committing the stock', async () => {
+      prisma.product.findUnique.mockResolvedValue(yogur);
+      prisma.product.findUniqueOrThrow.mockResolvedValue({ ...yogur, stock_actual: 65 });
+      const rpcError = new RpcException({ code: status.UNAVAILABLE, message: 'broker down' });
+      alertsClient.syncLowStock.mockRejectedValue(rpcError);
+
+      await expect(
+        service.adjustStock({ id: 4, tipo: 'entrada', cantidad: 50, motivo: 'Reposición' }),
+      ).rejects.toBe(rpcError);
+      expect(prisma.productHistory.create).toHaveBeenCalled();
     });
   });
 
@@ -174,6 +192,7 @@ describe('ProductsService', () => {
           motivo: purchaseOrderReceivedMotivo(purchaseOrderId),
         },
       });
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
     });
 
     it('ignores a duplicate delivery without adding the stock twice', async () => {
@@ -183,6 +202,8 @@ describe('ProductsService', () => {
 
       expect(prisma.product.update).not.toHaveBeenCalled();
       expect(prisma.productHistory.create).not.toHaveBeenCalled();
+      // A redelivery after a failed sync repairs the alert
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
     });
   });
 });

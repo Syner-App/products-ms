@@ -4,14 +4,15 @@ import { Transport, MicroserviceOptions, RpcException } from '@nestjs/microservi
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { status } from '@grpc/grpc-js';
 import { join } from 'path';
-import { envs, PURCHASE_ORDERS_QUEUE, SYNER_DLX, SYNER_EXCHANGE } from './config/index.ts';
+import { ALERTS_QUEUE, envs, PURCHASE_ORDERS_QUEUE, SYNER_DLX, SYNER_EXCHANGE } from './config/index.ts';
 import { PRODUCTS_PACKAGE_NAME } from './generated/proto/products.ts';
 import { PrismaExceptionFilter } from './common/index.ts';
 
 async function bootstrap() {
   const logger = new Logger('Main')
 
-  // Hybrid app: gRPC for the gateway + RabbitMQ for the purchase order saga (no HTTP server)
+  // Hybrid app: gRPC for the gateway + RabbitMQ for the purchase order saga and the
+  // stock alert requests (no HTTP server)
   const app = await NestFactory.create(AppModule);
 
   // Global enhancers must be registered before connectMicroservice() so
@@ -69,10 +70,26 @@ async function bootstrap() {
     { inheritAppConfig: true },
   );
 
+  // Stock alert requests (request/reply). noAck: a lost request just times out on
+  // the producer, so the global ValidationPipe can reject payloads safely
+  app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.RMQ,
+      options: {
+        urls: [envs.rabbitmqUrl],
+        queue: ALERTS_QUEUE,
+        queueOptions: { durable: true },
+        noAck: true,
+      },
+    },
+    { inheritAppConfig: true },
+  );
+
   // init() first so lifecycle hooks finish before any message is consumed
   await app.init();
   await app.startAllMicroservices();
   logger.log(`Products MS (gRPC) listening on port ${envs.port}`);
   logger.log(`Products MS (RMQ) consuming queue ${PURCHASE_ORDERS_QUEUE}`);
+  logger.log(`Products MS (RMQ) consuming queue ${ALERTS_QUEUE}`);
 }
 await bootstrap();

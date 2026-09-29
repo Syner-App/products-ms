@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { envs, PRODUCTS_EVENTS_CLIENT, SYNER_EXCHANGE } from '../config/index.ts';
+import { ALERTS_CLIENT, ALERTS_QUEUE, envs, PRODUCTS_EVENTS_CLIENT, SYNER_EXCHANGE } from '../config/index.ts';
 
 const rabbitMQClients = ClientsModule.register([
   {
@@ -13,6 +13,17 @@ const rabbitMQClients = ClientsModule.register([
       // Publish to the exchange using the event pattern as routing key
       wildcards: true,
       persistent: true,
+    },
+  },
+  {
+    // Request/reply straight to the alerts queue (no exchange); queueOptions
+    // must match syner/rabbitmq/definitions.json
+    name: ALERTS_CLIENT,
+    transport: Transport.RMQ,
+    options: {
+      urls: [envs.rabbitmqUrl],
+      queue: ALERTS_QUEUE,
+      queueOptions: { durable: true },
     },
   },
 ]);

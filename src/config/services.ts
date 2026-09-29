@@ -11,3 +11,13 @@ export const SYNER_DLX = 'syner.dlx';
 export const PURCHASE_ORDERS_QUEUE = 'products.purchase-orders';
 
 export const PUBLISH_TIMEOUT_MS = 5000;
+
+// Stock alerts: point-to-point request/reply queue consumed by products-ms itself.
+// The producer waits for the reply (direct reply-to), so alert sync is synchronous
+export const ALERTS_CLIENT = 'ALERTS_CLIENT';
+export const ALERTS_QUEUE = 'products.alerts';
+export const ALERT_RPC_TIMEOUT_MS = 5000;
+
+export const AlertPatterns = {
+  SyncLowStock: 'alerts.sync-low-stock',
+} as const;

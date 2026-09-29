@@ -24,7 +24,7 @@ El contrato del servicio está definido en [`src/proto/products.proto`](src/prot
 
 ### Alertas de stock bajo
 
-Cada cambio de stock (crear, actualizar el mínimo, ajustar, recibir una orden de compra y el seed) llama a `syncLowStockAlert` ([`src/alerts/low-stock-alert.ts`](src/alerts/low-stock-alert.ts)):
+Cada cambio de stock (crear, actualizar el mínimo, ajustar, recibir una orden de compra) solicita la sincronización de la alerta por **RabbitMQ en modo request/reply (síncrono)**: tras el commit, `AlertsClient` hace `send('alerts.sync-low-stock', { product_id })` a la cola `products.alerts` y espera la respuesta del consumidor (`AlertsController`), que ejecuta `syncLowStockAlert` ([`src/alerts/low-stock-alert.ts`](src/alerts/low-stock-alert.ts)) sobre el producto leído de la BD. Si no hay respuesta en 5 s la llamada falla con `DEADLINE_EXCEEDED` (o `UNAVAILABLE` si el consumidor devuelve error); el cambio de stock ya quedó guardado y la alerta se corrige en el siguiente cambio. El seed llama a `syncLowStockAlert` directamente, sin broker:
 
 - Si `stock_actual <= stock_minimo` y el producto no tiene una alerta `ACTIVA`, se crea una `STOCK_BAJO`.
 - Si el stock vuelve a superar el mínimo, sus alertas `ACTIVA` pasan a `RESUELTA`.

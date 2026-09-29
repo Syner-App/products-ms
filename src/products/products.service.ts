@@ -6,10 +6,14 @@ import { UpdateProductDto } from './dto/update-product.dto.js';
 import { FindProductsDto } from './dto/find-products.dto.ts';
 import { AdjustStockDto } from './dto/adjust-stock.dto.ts';
 import { PrismaService } from '../prisma/prisma-service.service.ts';
-import { syncLowStockAlert } from '../alerts/low-stock-alert.ts';
+import { AlertsClient } from '../alerts/alerts.client.ts';
 import type { Prisma, Product } from '../generated/prisma/client.ts';
 import { TypeProductHistory } from '../generated/prisma/enums.ts';
 import type { PurchaseOrderReceivedEvent } from '../common/index.ts';
+
+// The STOCK_BAJO alert is synced over RabbitMQ (AlertsClient) after each commit, never
+// inside the transaction: the consumer uses its own connection and would not see
+// uncommitted rows. A failed sync propagates the error, but the stock change stays
 
 // Motivo of the entrada recorded when a purchase order is received. It doubles as
 // the idempotency key: a redelivered purchase-order.received adds no stock twice
@@ -20,14 +24,14 @@ export const purchaseOrderReceivedMotivo = (purchaseOrderId: string) =>
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
 
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private readonly alertsClient: AlertsClient,
+  ) { }
 
   async create(createProductDto: CreateProductDto) {
-    const product = await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.create({ data: createProductDto });
-      await syncLowStockAlert(tx, product);
-      return product;
-    });
+    const product = await this.prisma.product.create({ data: createProductDto });
+    await this.alertsClient.syncLowStock(product.id);
     return this.toProductResponse(product);
   }
 
@@ -73,15 +77,12 @@ export class ProductsService {
   async update(id: number, updateProductDto: Omit<UpdateProductDto, 'id'>) {
     await this.findActive(id);
 
-    const product = await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.update({
-        where: { id },
-        data: updateProductDto,
-      });
-      // stock_minimo may have changed
-      await syncLowStockAlert(tx, product);
-      return product;
+    const product = await this.prisma.product.update({
+      where: { id },
+      data: updateProductDto,
     });
+    // stock_minimo may have changed
+    await this.alertsClient.syncLowStock(product.id);
     return this.toProductResponse(product);
   }
 
@@ -121,11 +122,10 @@ export class ProductsService {
 
       await tx.productHistory.create({ data: { product_id: id, tipo, cantidad, motivo } });
 
-      const product = await tx.product.findUniqueOrThrow({ where: { id } });
-      await syncLowStockAlert(tx, product);
-      return product;
+      return tx.product.findUniqueOrThrow({ where: { id } });
     });
 
+    await this.alertsClient.syncLowStock(id);
     return this.toProductResponse(product);
   }
 
@@ -144,11 +144,12 @@ export class ProductsService {
   }
 
   // Purchase order saga: the goods arrived, so the stock goes up even if the
-  // product was deactivated meanwhile. Returns false for a duplicate delivery
+  // product was deactivated meanwhile. Returns false for a duplicate delivery; the
+  // alert is synced either way, so a redelivery after a failed sync repairs it
   async receivePurchaseOrder({ purchaseOrderId, producto_id, cantidad }: PurchaseOrderReceivedEvent) {
     const motivo = purchaseOrderReceivedMotivo(purchaseOrderId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const applied = await this.prisma.$transaction(async (tx) => {
       const alreadyApplied = await tx.productHistory.findFirst({
         where: { product_id: producto_id, motivo },
         select: { id: true },
@@ -158,18 +159,20 @@ export class ProductsService {
         return false;
       }
 
-      const product = await tx.product.update({
+      await tx.product.update({
         where: { id: producto_id },
         data: { stock_actual: { increment: cantidad } },
       });
       await tx.productHistory.create({
         data: { product_id: producto_id, tipo: TypeProductHistory.entrada, cantidad, motivo },
       });
-      await syncLowStockAlert(tx, product);
 
       this.logger.log(`Purchase order #${purchaseOrderId}: +${cantidad} to product #${producto_id}`);
       return true;
     });
+
+    await this.alertsClient.syncLowStock(producto_id);
+    return applied;
   }
 
   private async findActive(id: number, tx: Prisma.TransactionClient = this.prisma) {
