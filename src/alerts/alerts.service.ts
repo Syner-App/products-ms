@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma-service/prisma-service.service.ts';
+import { PrismaService } from '../prisma/prisma-service.service.ts';
 import type { Alerts } from '../generated/prisma/client.ts';
 import { FindAlertsDto } from './dto/find-alerts.dto.ts';
 

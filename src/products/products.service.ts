@@ -5,7 +5,7 @@ import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { FindProductsDto } from './dto/find-products.dto.ts';
 import { AdjustStockDto } from './dto/adjust-stock.dto.ts';
-import { PrismaService } from '../prisma-service/prisma-service.service.ts';
+import { PrismaService } from '../prisma/prisma-service.service.ts';
 import { syncLowStockAlert } from '../alerts/low-stock-alert.ts';
 import type { Prisma, Product } from '../generated/prisma/client.ts';
 import { TypeProductHistory } from '../generated/prisma/enums.ts';

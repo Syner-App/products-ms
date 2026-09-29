@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RpcException } from '@nestjs/microservices';
 import { status } from '@grpc/grpc-js';
 import { ProductsService, purchaseOrderReceivedMotivo } from './products.service.js';
-import { PrismaService } from '../prisma-service/prisma-service.service.ts';
+import { PrismaService } from '../prisma/prisma-service.service.ts';
 
 const purchaseOrderId = '6f1c1c9e-2f5b-4c1a-9a47-6a2b1f3c8d10';
 
