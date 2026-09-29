@@ -48,6 +48,14 @@ export interface ProductList {
   meta: PaginationMeta | undefined;
 }
 
+export interface ValidateProductsRequest {
+  ids: number[];
+}
+
+export interface ValidateProductsResponse {
+  data: Product[];
+}
+
 export const PRODUCTS_PACKAGE_NAME = "products";
 
 export interface ProductsServiceClient {
@@ -60,6 +68,8 @@ export interface ProductsServiceClient {
   update(request: UpdateProductRequest): Observable<Product>;
 
   remove(request: ProductById): Observable<Product>;
+
+  validateProducts(request: ValidateProductsRequest): Observable<ValidateProductsResponse>;
 }
 
 export interface ProductsServiceController {
@@ -72,11 +82,15 @@ export interface ProductsServiceController {
   update(request: UpdateProductRequest): Promise<Product> | Observable<Product> | Product;
 
   remove(request: ProductById): Promise<Product> | Observable<Product> | Product;
+
+  validateProducts(
+    request: ValidateProductsRequest,
+  ): Promise<ValidateProductsResponse> | Observable<ValidateProductsResponse> | ValidateProductsResponse;
 }
 
 export function ProductsServiceControllerMethods() {
   return function (constructor: Function) {
-    const grpcMethods: string[] = ["create", "findAll", "findOne", "update", "remove"];
+    const grpcMethods: string[] = ["create", "findAll", "findOne", "update", "remove", "validateProducts"];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
       GrpcMethod("ProductsService", method)(constructor.prototype[method], method, descriptor);
