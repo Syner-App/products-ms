@@ -8,7 +8,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-// Order saga contract. Keep in sync with order-ms/src/common/events/order.events.ts
+// Order saga contract. Keep in sync with orders-ms/src/common/events/order.events.ts
 export const OrderEvents = {
   Created: 'order.created',
   ProductsValidated: 'order.products.validated',
