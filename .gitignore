@@ -71,3 +71,9 @@ dev.db
 
 skills-lock.json
 slq/
+# SQLite database (products-ms/data/dev.db)
+/data/
+
+# Engram: keep project config, ignore local sync chunks
+.engram/*
+!.engram/config.json

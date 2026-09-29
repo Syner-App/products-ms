@@ -91,9 +91,11 @@ export class ProductsService {
     });
 
     if (products.length !== ids.length ) {
+      const foundIds = new Set(products.map((product) => product.id));
+      const missingIds = ids.filter((id) => !foundIds.has(id));
       throw new RpcException({
         code: status.INVALID_ARGUMENT,
-        message: `Some products were not found`,
+        message: `Products not found or unavailable: ${missingIds.map((id) => `#${id}`).join(', ')}`,
       });
     }
 

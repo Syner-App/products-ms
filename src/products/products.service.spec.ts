@@ -9,6 +9,7 @@ describe('ProductsService', () => {
   const prisma = {
     product: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
     },
   };
 
@@ -31,5 +32,27 @@ describe('ProductsService', () => {
 
     expect(error).toBeInstanceOf(RpcException);
     expect((error as RpcException).getError()).toMatchObject({ code: status.NOT_FOUND });
+  });
+
+  it('validateProducts returns the available products, ignoring duplicated ids', async () => {
+    const products = [{ id: 1 }, { id: 2 }];
+    prisma.product.findMany.mockResolvedValue(products);
+
+    await expect(service.validateProducts([1, 2, 1])).resolves.toBe(products);
+    expect(prisma.product.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [1, 2] }, available: true },
+    });
+  });
+
+  it('validateProducts throws INVALID_ARGUMENT listing the missing ids', async () => {
+    prisma.product.findMany.mockResolvedValue([{ id: 1 }]);
+
+    const error = await service.validateProducts([1, 7, 9]).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(RpcException);
+    expect((error as RpcException).getError()).toEqual({
+      code: status.INVALID_ARGUMENT,
+      message: 'Products not found or unavailable: #7, #9',
+    });
   });
 });
