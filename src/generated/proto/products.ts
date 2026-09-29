@@ -10,31 +10,103 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "products";
 
+export enum TypeCategory {
+  Bebidas = "Bebidas",
+  Lacteos = "Lacteos",
+  Snacks = "Snacks",
+  Limpieza = "Limpieza",
+  Frutas = "Frutas",
+  Granos = "Granos",
+  UNRECOGNIZED = "UNRECOGNIZED",
+}
+
+export enum TypeProductHistory {
+  entrada = "entrada",
+  salida = "salida",
+  UNRECOGNIZED = "UNRECOGNIZED",
+}
+
+export enum TypeAlert {
+  STOCK_BAJO = "STOCK_BAJO",
+  UNRECOGNIZED = "UNRECOGNIZED",
+}
+
+export enum StatusAlert {
+  ACTIVA = "ACTIVA",
+  RESUELTA = "RESUELTA",
+  UNRECOGNIZED = "UNRECOGNIZED",
+}
+
 export interface ProductById {
   id: number;
 }
 
 export interface CreateProductRequest {
-  name: string;
-  price: number;
+  nombre: string;
+  codigo_sku: string;
+  categoria: TypeCategory;
+  precio: number;
+  stock_actual?: number | undefined;
+  stock_minimo?: number | undefined;
+  proveedor: string;
 }
 
+/** Stock is only changed through AdjustStock */
 export interface UpdateProductRequest {
   id: number;
-  name?: string | undefined;
-  price?: number | undefined;
+  nombre?: string | undefined;
+  codigo_sku?: string | undefined;
+  categoria?: TypeCategory | undefined;
+  precio?: number | undefined;
+  stock_minimo?: number | undefined;
+  proveedor?: string | undefined;
 }
 
-export interface PaginationRequest {
+export interface FindProductsRequest {
   page?: number | undefined;
   limit?: number | undefined;
+  categoria?: TypeCategory | undefined;
+  proveedor?: string | undefined;
+  nombre?: string | undefined;
+  activo?: boolean | undefined;
+  stock_bajo?: boolean | undefined;
+}
+
+export interface AdjustStockRequest {
+  id: number;
+  tipo: TypeProductHistory;
+  cantidad: number;
+  motivo: string;
+}
+
+export interface FindAlertsRequest {
+  page?: number | undefined;
+  limit?: number | undefined;
+  estado?: StatusAlert | undefined;
 }
 
 export interface Product {
   id: number;
-  name: string;
-  price: number;
-  available: boolean;
+  nombre: string;
+  codigo_sku: string;
+  categoria: TypeCategory;
+  precio: number;
+  stock_actual: number;
+  stock_minimo: number;
+  proveedor: string;
+  activo: boolean;
+  createdAt: string;
+  updatedAt?: string | undefined;
+}
+
+export interface Alert {
+  id: string;
+  tipo: TypeAlert;
+  estado: StatusAlert;
+  descripcion: string;
+  product_id: number;
+  createdAt: string;
+  updatedAt?: string | undefined;
 }
 
 export interface PaginationMeta {
@@ -48,35 +120,58 @@ export interface ProductList {
   meta: PaginationMeta | undefined;
 }
 
+export interface AlertList {
+  data: Alert[];
+  meta: PaginationMeta | undefined;
+}
+
 export const PRODUCTS_PACKAGE_NAME = "products";
+
+/**
+ * Field names are snake_case end to end (proto-loader keepCase + ts-proto
+ * snakeToCamel=false) so they match the Prisma columns
+ */
 
 export interface ProductsServiceClient {
   create(request: CreateProductRequest): Observable<Product>;
 
-  findAll(request: PaginationRequest): Observable<ProductList>;
+  findAll(request: FindProductsRequest): Observable<ProductList>;
 
   findOne(request: ProductById): Observable<Product>;
 
   update(request: UpdateProductRequest): Observable<Product>;
 
   remove(request: ProductById): Observable<Product>;
+
+  adjustStock(request: AdjustStockRequest): Observable<Product>;
+
+  findAlerts(request: FindAlertsRequest): Observable<AlertList>;
 }
+
+/**
+ * Field names are snake_case end to end (proto-loader keepCase + ts-proto
+ * snakeToCamel=false) so they match the Prisma columns
+ */
 
 export interface ProductsServiceController {
   create(request: CreateProductRequest): Promise<Product> | Observable<Product> | Product;
 
-  findAll(request: PaginationRequest): Promise<ProductList> | Observable<ProductList> | ProductList;
+  findAll(request: FindProductsRequest): Promise<ProductList> | Observable<ProductList> | ProductList;
 
   findOne(request: ProductById): Promise<Product> | Observable<Product> | Product;
 
   update(request: UpdateProductRequest): Promise<Product> | Observable<Product> | Product;
 
   remove(request: ProductById): Promise<Product> | Observable<Product> | Product;
+
+  adjustStock(request: AdjustStockRequest): Promise<Product> | Observable<Product> | Product;
+
+  findAlerts(request: FindAlertsRequest): Promise<AlertList> | Observable<AlertList> | AlertList;
 }
 
 export function ProductsServiceControllerMethods() {
   return function (constructor: Function) {
-    const grpcMethods: string[] = ["create", "findAll", "findOne", "update", "remove"];
+    const grpcMethods: string[] = ["create", "findAll", "findOne", "update", "remove", "adjustStock", "findAlerts"];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
       GrpcMethod("ProductsService", method)(constructor.prototype[method], method, descriptor);

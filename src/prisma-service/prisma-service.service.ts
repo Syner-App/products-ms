@@ -1,6 +1,5 @@
-
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client.js';
 import { envs } from '../config/envs.ts';
 
@@ -12,8 +11,8 @@ export class PrismaService
 
   private logger = new Logger('PrismaService')
   constructor() {
-    const adapter = new PrismaBetterSqlite3({
-      url: envs.databaseUrl,
+    const adapter = new PrismaPg({
+      connectionString: envs.databaseUrl,
     });
     super({ adapter });
   }

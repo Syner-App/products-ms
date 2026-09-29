@@ -4,7 +4,8 @@ import { ProductsService } from './products.service.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { ProductByIdDto } from './dto/product-by-id.dto.js';
-import { PaginationDto } from '../common/index.ts';
+import { FindProductsDto } from './dto/find-products.dto.ts';
+import { AdjustStockDto } from './dto/adjust-stock.dto.ts';
 import { PRODUCTS_SERVICE_NAME } from '../generated/proto/products.ts';
 
 @Controller()
@@ -17,8 +18,8 @@ export class ProductsController {
   }
 
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'FindAll')
-  findAll(@Payload() paginationDto: PaginationDto) {
-    return this.productsService.findAll(paginationDto);
+  findAll(@Payload() findProductsDto: FindProductsDto) {
+    return this.productsService.findAll(findProductsDto);
   }
 
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'FindOne')
@@ -34,5 +35,10 @@ export class ProductsController {
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'Remove')
   remove(@Payload() { id }: ProductByIdDto) {
     return this.productsService.remove(id);
+  }
+
+  @GrpcMethod(PRODUCTS_SERVICE_NAME, 'AdjustStock')
+  adjustStock(@Payload() adjustStockDto: AdjustStockDto) {
+    return this.productsService.adjustStock(adjustStockDto);
   }
 }

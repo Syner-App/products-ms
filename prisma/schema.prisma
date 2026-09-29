@@ -1,27 +1,88 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "cjs"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
+}
+
+enum TypeCategory {
+  Bebidas
+  Lacteos
+  Snacks
+  Limpieza
+  Frutas
+  Granos
 }
 
 model Product {
-  id Int @id @default(autoincrement())
-  name String @unique
-  price Float
+  id           Int          @id @default(autoincrement())
+  nombre       String       @db.VarChar
+  codigo_sku   String       @unique @db.VarChar(20)
+  categoria    TypeCategory
+  precio       Int          @db.Integer
+  stock_actual Int          @default(0) @db.Integer
+  stock_minimo Int          @default(0) @db.Integer
+  proveedor    String       @db.VarChar
+  activo       Boolean      @default(true) @db.Boolean
+  createdAt    DateTime     @default(now()) @db.Timestamp
+  updatedAt    DateTime?    @updatedAt @db.Timestamp
 
-  available Boolean @default(true)
+  historial ProductHistory[]
+  alertas   Alerts[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@index([categoria])
+  @@index([activo])
+  @@map("productos")
+}
 
-  @@index([available])  
+enum TypeProductHistory {
+  entrada
+  salida
+}
+
+model ProductHistory {
+  id        String             @id @default(uuid())
+  tipo      TypeProductHistory
+  cantidad  Int                @db.Integer
+  fecha     DateTime           @default(now()) @db.Timestamp
+  motivo    String             @db.VarChar
+  createdAt DateTime           @default(now()) @db.Timestamp
+
+  // Relaciones
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product_id Int
+
+  @@index([product_id, motivo])
+  @@map("historial_productos")
+}
+
+enum TypeAlert {
+  STOCK_BAJO
+}
+
+enum StatusAlert {
+  ACTIVA
+  RESUELTA
+}
+
+model Alerts {
+  id          String      @id @default(uuid())
+  tipo        TypeAlert
+  estado      StatusAlert
+  descripcion String      @db.VarChar
+  createdAt   DateTime    @default(now()) @db.Timestamp
+  updatedAt   DateTime?   @updatedAt @db.Timestamp
+
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product_id Int
+
+  @@index([product_id, estado])
+  @@index([estado, createdAt])
+  @@map("alertas")
 }

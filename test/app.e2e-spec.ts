@@ -15,6 +15,7 @@ const grpcOptions = {
   package: PRODUCTS_PACKAGE_NAME,
   protoPath: join(import.meta.dirname, '../src/proto/products.proto'),
   url: 'localhost:50099',
+  loader: { keepCase: true, enums: String },
 };
 
 describe('ProductsService (gRPC e2e)', () => {
