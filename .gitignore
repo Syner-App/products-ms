@@ -69,7 +69,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 dev.db
 
-skills-lock.json
 slq/
 # SQLite database (products-ms/data/dev.db)
 /data/
