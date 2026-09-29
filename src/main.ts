@@ -4,21 +4,18 @@ import { Transport, MicroserviceOptions, RpcException } from '@nestjs/microservi
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { status } from '@grpc/grpc-js';
 import { join } from 'path';
-import { envs } from './config/envs.ts';
+import { envs, ORDER_VALIDATION_QUEUE, SYNER_DLX, SYNER_EXCHANGE } from './config/index.ts';
 import { PRODUCTS_PACKAGE_NAME } from './generated/proto/products.ts';
 import { PrismaExceptionFilter } from './common/index.ts';
 
 async function bootstrap() {
   const logger = new Logger('Main')
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
-    transport: Transport.GRPC,
-    options: {
-      package: PRODUCTS_PACKAGE_NAME,
-      protoPath: join(import.meta.dirname, 'proto/products.proto'),
-      url: `0.0.0.0:${envs.port}`,
-    }
-  });
 
+  // Hybrid app: gRPC for the gateway + RabbitMQ for the order saga (no HTTP server)
+  const app = await NestFactory.create(AppModule);
+
+  // Global enhancers must be registered before connectMicroservice() so
+  // inheritAppConfig can copy them to every microservice
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -35,7 +32,45 @@ async function bootstrap() {
   )
   app.useGlobalFilters(new PrismaExceptionFilter());
 
-  await app.listen();
+  app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.GRPC,
+      options: {
+        package: PRODUCTS_PACKAGE_NAME,
+        protoPath: join(import.meta.dirname, 'proto/products.proto'),
+        url: `0.0.0.0:${envs.port}`,
+      },
+    },
+    { inheritAppConfig: true },
+  );
+
+  app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.RMQ,
+      options: {
+        urls: [envs.rabbitmqUrl],
+        queue: ORDER_VALIDATION_QUEUE,
+        queueOptions: {
+          durable: true,
+          arguments: {
+            'x-dead-letter-exchange': SYNER_DLX,
+            'x-dead-letter-routing-key': ORDER_VALIDATION_QUEUE,
+          },
+        },
+        exchange: SYNER_EXCHANGE,
+        exchangeType: 'topic',
+        wildcards: true,
+        noAck: false,
+        prefetchCount: 10,
+      },
+    },
+    { inheritAppConfig: true },
+  );
+
+  // init() first so lifecycle hooks finish before any message is consumed
+  await app.init();
+  await app.startAllMicroservices();
   logger.log(`Products MS (gRPC) listening on port ${envs.port}`);
+  logger.log(`Products MS (RMQ) consuming queue ${ORDER_VALIDATION_QUEUE}`);
 }
 await bootstrap();

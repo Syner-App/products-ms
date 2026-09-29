@@ -71,3 +71,5 @@ dev.db
 
 skills-lock.json
 slq/
+# SQLite database (products-ms/data/dev.db)
+/data/

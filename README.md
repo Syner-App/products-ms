@@ -4,11 +4,11 @@
 
 <h1 align="center">products-ms</h1>
 
-<p align="center">Microservicio de productos del proyecto <strong>Syner</strong>, construido con NestJS y gRPC.</p>
+<p align="center">Microservicio de productos del proyecto <strong>Syner</strong>, construido con NestJS, gRPC y RabbitMQ.</p>
 
 ## Descripción
 
-`products-ms` es el microservicio encargado de la gestión del catálogo de productos dentro de la arquitectura de microservicios de Syner. Expone su API exclusivamente mediante **gRPC** (sin servidor HTTP) y persiste los datos con **Prisma** sobre **SQLite**.
+`products-ms` es el microservicio encargado de la gestión del catálogo de productos dentro de la arquitectura de microservicios de Syner. Expone su API mediante **gRPC** (sin servidor HTTP), persiste los datos con **Prisma** sobre **SQLite** y participa en la **saga de órdenes** por **RabbitMQ**.
 
 El contrato del servicio está definido en [`src/proto/products.proto`](src/proto/products.proto) (`products.ProductsService`) y ofrece las siguientes operaciones:
 
@@ -20,9 +20,18 @@ El contrato del servicio está definido en [`src/proto/products.proto`](src/prot
 | `Update`  | Actualiza parcialmente un producto.           |
 | `Remove`  | Elimina un producto (soft delete: `available = false`). |
 
+### Saga de órdenes (RabbitMQ)
+
+`products-ms` consume `order.created` (cola `products.order-validation`, exchange `syner.events`), valida los productos y responde con uno de dos eventos:
+
+- `order.products.validated`, con `id`, `name` y `price` de cada producto.
+- `order.products.rejected`, con el motivo.
+
+Si un mensaje no se puede procesar, se reintenta una vez; si vuelve a fallar, va a `products.order-validation.dlq`.
+
 ## Stack
 
-- NestJS (microservicio gRPC, ESM)
+- NestJS (app híbrida gRPC + RabbitMQ, ESM)
 - Prisma 7 + SQLite (`better-sqlite3`)
 - `class-validator` / `class-transformer` para validación
 - Vitest para pruebas unitarias y e2e
@@ -32,8 +41,8 @@ El contrato del servicio está definido en [`src/proto/products.proto`](src/prot
 
 ```bash
 pnpm install
-cp .env.template .env   # PORT (puerto gRPC) y DATABASE_URL
-pnpm start:dev
+cp .env.template .env   # PORT (puerto gRPC), DATABASE_URL y RABBITMQ_URL
+pnpm start:dev          # requiere RabbitMQ; o todo el stack con `docker compose up -d --build` en la raíz de syner/
 ```
 
 ## Scripts útiles

@@ -4,7 +4,6 @@ import { ProductsService } from './products.service.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { ProductByIdDto } from './dto/product-by-id.dto.js';
-import { ValidateProductsDto } from './dto/validate-products.dto.js';
 import { PaginationDto } from '../common/index.ts';
 import { PRODUCTS_SERVICE_NAME } from '../generated/proto/products.ts';
 
@@ -35,11 +34,5 @@ export class ProductsController {
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'Remove')
   remove(@Payload() { id }: ProductByIdDto) {
     return this.productsService.remove(id);
-  }
-
-  @GrpcMethod(PRODUCTS_SERVICE_NAME, 'ValidateProducts')
-  async validateProducts(@Payload() { ids }: ValidateProductsDto) {
-    const products = await this.productsService.validateProducts(ids);
-    return { data: products };
   }
 }
