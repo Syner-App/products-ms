@@ -1,8 +1,12 @@
-import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsEnum, IsMongoId, IsOptional, IsString } from 'class-validator';
 import { PaginationDto } from '../../common/index.ts';
 import { TypeCategory } from '../../generated/prisma/enums.ts';
 
 export class FindProductsDto extends PaginationDto {
+    // Organization of the authenticated caller, set by client-gateway from the verified token
+    @IsMongoId()
+    public organization_id: string;
+
     @IsEnum(TypeCategory, {
         message: `Possible categoria values are ${Object.values(TypeCategory).join(', ')}`,
     })

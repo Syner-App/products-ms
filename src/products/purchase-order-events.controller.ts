@@ -89,12 +89,12 @@ export class PurchaseOrderEventsController {
     }
   }
 
-  private async validatePurchaseOrder({ purchaseOrderId, producto_id }: PurchaseOrderCreatedEvent): Promise<ValidationReply> {
+  private async validatePurchaseOrder({ organization_id, purchaseOrderId, producto_id }: PurchaseOrderCreatedEvent): Promise<ValidationReply> {
     try {
-      await this.productsService.validateProduct(producto_id);
+      await this.productsService.validateProduct(organization_id, producto_id);
       return {
         pattern: PurchaseOrderEvents.ProductValidated,
-        data: { purchaseOrderId, producto_id },
+        data: { organization_id, purchaseOrderId, producto_id },
       };
     } catch (error) {
       const rpcError = error instanceof RpcException
@@ -105,7 +105,7 @@ export class PurchaseOrderEventsController {
 
       return {
         pattern: PurchaseOrderEvents.ProductRejected,
-        data: { purchaseOrderId, reason: rpcError.message ?? 'Invalid product' },
+        data: { organization_id, purchaseOrderId, reason: rpcError.message ?? 'Invalid product' },
       };
     }
   }

@@ -9,7 +9,9 @@ export default defineConfig({
     path: "prisma/migrations",
     seed: "tsx prisma/seed.ts",
   },
+  // Migrations need the table owner: the services connect as a role without
+  // BYPASSRLS/DDL rights (DATABASE_URL), so the CLI prefers MIGRATE_DATABASE_URL
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: process.env["MIGRATE_DATABASE_URL"] ?? process.env["DATABASE_URL"],
   },
 });

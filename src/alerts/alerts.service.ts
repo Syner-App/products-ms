@@ -10,17 +10,18 @@ import { syncLowStockAlert } from './low-stock-alert.ts';
 export class AlertsService {
   constructor(private readonly prisma: PrismaService) { }
 
-  async findAll({ page, limit, estado }: FindAlertsDto) {
-    const where = { estado };
+  async findAll({ organization_id, page, limit, estado }: FindAlertsDto) {
+    const where = { organization_id, estado };
 
-    const total = await this.prisma.alerts.count({ where });
-
-    const alerts = await this.prisma.alerts.findMany({
-      where,
-      take: limit,
-      skip: (page! - 1) * limit!,
-      orderBy: { createdAt: 'desc' },
-    });
+    const [total, alerts] = await this.prisma.withTenant(organization_id, async (tx) => [
+      await tx.alerts.count({ where }),
+      await tx.alerts.findMany({
+        where,
+        take: limit,
+        skip: (page! - 1) * limit!,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ] as const);
 
     return {
       data: alerts.map((alert) => this.toAlertResponse(alert)),
@@ -33,9 +34,9 @@ export class AlertsService {
   }
 
   // Reads the committed product so out-of-order requests never apply a stale snapshot
-  async syncLowStock(product_id: number) {
-    await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.findUniqueOrThrow({ where: { id: product_id } });
+  async syncLowStock(organization_id: string, product_id: number) {
+    await this.prisma.withTenant(organization_id, async (tx) => {
+      const product = await tx.product.findUniqueOrThrow({ where: { id: product_id, organization_id } });
       await syncLowStockAlert(tx, product);
     });
   }

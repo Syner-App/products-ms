@@ -20,24 +20,29 @@ enum TypeCategory {
   Granos
 }
 
+// Every table carries organization_id (the auth-ms organization, a Mongo ObjectId) and is
+// protected by the tenant_isolation RLS policy (see the multitenancy migration)
 model Product {
-  id           Int          @id @default(autoincrement())
-  nombre       String       @db.VarChar
-  codigo_sku   String       @unique @db.VarChar(20)
-  categoria    TypeCategory
-  precio       Int          @db.Integer
-  stock_actual Int          @default(0) @db.Integer
-  stock_minimo Int          @default(0) @db.Integer
-  proveedor    String       @db.VarChar
-  activo       Boolean      @default(true) @db.Boolean
-  createdAt    DateTime     @default(now()) @db.Timestamp
-  updatedAt    DateTime?    @updatedAt @db.Timestamp
+  id              Int          @id @default(autoincrement())
+  organization_id String       @db.VarChar(24)
+  nombre          String       @db.VarChar
+  codigo_sku      String       @db.VarChar(20)
+  categoria       TypeCategory
+  precio          Int          @db.Integer
+  stock_actual    Int          @default(0) @db.Integer
+  stock_minimo    Int          @default(0) @db.Integer
+  proveedor       String       @db.VarChar
+  activo          Boolean      @default(true) @db.Boolean
+  createdAt       DateTime     @default(now()) @db.Timestamp
+  updatedAt       DateTime?    @updatedAt @db.Timestamp
 
   historial ProductHistory[]
   alertas   Alerts[]
 
-  @@index([categoria])
-  @@index([activo])
+  // The same SKU may exist in several organizations
+  @@unique([organization_id, codigo_sku])
+  @@index([organization_id, categoria])
+  @@index([organization_id, activo])
   @@map("productos")
 }
 
@@ -47,12 +52,13 @@ enum TypeProductHistory {
 }
 
 model ProductHistory {
-  id        String             @id @default(uuid())
-  tipo      TypeProductHistory
-  cantidad  Int                @db.Integer
-  fecha     DateTime           @default(now()) @db.Timestamp
-  motivo    String             @db.VarChar
-  createdAt DateTime           @default(now()) @db.Timestamp
+  id              String             @id @default(uuid())
+  organization_id String             @db.VarChar(24)
+  tipo            TypeProductHistory
+  cantidad        Int                @db.Integer
+  fecha           DateTime           @default(now()) @db.Timestamp
+  motivo          String             @db.VarChar
+  createdAt       DateTime           @default(now()) @db.Timestamp
 
   // Relaciones
   product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
@@ -72,17 +78,18 @@ enum StatusAlert {
 }
 
 model Alerts {
-  id          String      @id @default(uuid())
-  tipo        TypeAlert
-  estado      StatusAlert
-  descripcion String      @db.VarChar
-  createdAt   DateTime    @default(now()) @db.Timestamp
-  updatedAt   DateTime?   @updatedAt @db.Timestamp
+  id              String      @id @default(uuid())
+  organization_id String      @db.VarChar(24)
+  tipo            TypeAlert
+  estado          StatusAlert
+  descripcion     String      @db.VarChar
+  createdAt       DateTime    @default(now()) @db.Timestamp
+  updatedAt       DateTime?   @updatedAt @db.Timestamp
 
   product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
   product_id Int
 
   @@index([product_id, estado])
-  @@index([estado, createdAt])
+  @@index([organization_id, estado, createdAt])
   @@map("alertas")
 }

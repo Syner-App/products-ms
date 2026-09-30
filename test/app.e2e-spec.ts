@@ -18,6 +18,9 @@ const grpcOptions = {
   loader: { keepCase: true, enums: String },
 };
 
+// Any organization id: rows are scoped to it (an unknown organization just has no products)
+const organization_id = '6abd26a42d059ac027376ca1';
+
 describe('ProductsService (gRPC e2e)', () => {
   let app: INestMicroservice;
   let productsClient: ProductsServiceClient;
@@ -47,14 +50,14 @@ describe('ProductsService (gRPC e2e)', () => {
   });
 
   it('FindAll returns a paginated product list', async () => {
-    const result = await firstValueFrom(productsClient.findAll({ page: 1, limit: 5 }));
+    const result = await firstValueFrom(productsClient.findAll({ organization_id, page: 1, limit: 5 }));
 
     expect(result.data.length).toBeLessThanOrEqual(5);
     expect(result.meta).toMatchObject({ page: 1 });
   });
 
   it('FindOne returns NOT_FOUND for a missing product', async () => {
-    await expect(firstValueFrom(productsClient.findOne({ id: 999999 }))).rejects.toMatchObject({
+    await expect(firstValueFrom(productsClient.findOne({ organization_id, id: 999999 }))).rejects.toMatchObject({
       code: status.NOT_FOUND,
     });
   });

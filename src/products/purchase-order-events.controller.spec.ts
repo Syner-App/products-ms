@@ -8,6 +8,7 @@ import { PRODUCTS_EVENTS_CLIENT } from '../config/index.ts';
 import { PurchaseOrderEvents } from '../common/index.ts';
 
 const purchaseOrderId = '6f1c1c9e-2f5b-4c1a-9a47-6a2b1f3c8d10';
+const organization_id = '6abd26a42d059ac027376ca1';
 
 function createContext(redelivered = false) {
   const channel = { ack: vi.fn(), nack: vi.fn() };
@@ -37,7 +38,7 @@ describe('PurchaseOrderEventsController', () => {
   });
 
   describe('purchase-order.created', () => {
-    const event = { purchaseOrderId, producto_id: 1, cantidad_solicitada: 10 };
+    const event = { organization_id, purchaseOrderId, producto_id: 1, cantidad_solicitada: 10 };
 
     it('publishes purchase-order.product.validated and acks when the product is valid', async () => {
       productsService.validateProduct.mockResolvedValue({ id: 1, activo: true });
@@ -45,8 +46,9 @@ describe('PurchaseOrderEventsController', () => {
 
       await controller.handlePurchaseOrderCreated(event, context);
 
-      expect(productsService.validateProduct).toHaveBeenCalledWith(1);
+      expect(productsService.validateProduct).toHaveBeenCalledWith(organization_id, 1);
       expect(eventsClient.emit).toHaveBeenCalledWith(PurchaseOrderEvents.ProductValidated, {
+        organization_id,
         purchaseOrderId,
         producto_id: 1,
       });
@@ -63,10 +65,21 @@ describe('PurchaseOrderEventsController', () => {
       await controller.handlePurchaseOrderCreated({ ...event, producto_id: 9 }, context);
 
       expect(eventsClient.emit).toHaveBeenCalledWith(PurchaseOrderEvents.ProductRejected, {
+        organization_id,
         purchaseOrderId,
         reason: 'Product #9 not found or inactive',
       });
       expect(channel.ack).toHaveBeenCalledWith(message);
+    });
+
+    it('dead-letters an event without organization_id', async () => {
+      const { channel, message, context } = createContext();
+      const { organization_id: _omitted, ...withoutOrganization } = event;
+
+      await controller.handlePurchaseOrderCreated(withoutOrganization, context);
+
+      expect(productsService.validateProduct).not.toHaveBeenCalled();
+      expect(channel.nack).toHaveBeenCalledWith(message, false, false);
     });
 
     it('dead-letters an invalid payload without touching the database', async () => {
@@ -101,7 +114,7 @@ describe('PurchaseOrderEventsController', () => {
   });
 
   describe('purchase-order.received', () => {
-    const event = { purchaseOrderId, producto_id: 1, cantidad: 25 };
+    const event = { organization_id, purchaseOrderId, producto_id: 1, cantidad: 25 };
 
     it('adds the stock and acks', async () => {
       productsService.receivePurchaseOrder.mockResolvedValue(true);
@@ -125,7 +138,7 @@ describe('PurchaseOrderEventsController', () => {
     it('dead-letters a payload without cantidad', async () => {
       const { channel, message, context } = createContext();
 
-      await controller.handlePurchaseOrderReceived({ purchaseOrderId, producto_id: 1 }, context);
+      await controller.handlePurchaseOrderReceived({ organization_id, purchaseOrderId, producto_id: 1 }, context);
 
       expect(productsService.receivePurchaseOrder).not.toHaveBeenCalled();
       expect(channel.nack).toHaveBeenCalledWith(message, false, false);

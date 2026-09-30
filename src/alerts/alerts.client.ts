@@ -11,8 +11,8 @@ import type { SyncLowStockAlertDto } from './dto/sync-low-stock-alert.dto.ts';
 export class AlertsClient {
   constructor(@Inject(ALERTS_CLIENT) private readonly client: ClientProxy) { }
 
-  async syncLowStock(product_id: number): Promise<void> {
-    const payload: SyncLowStockAlertDto = { product_id };
+  async syncLowStock(organization_id: string, product_id: number): Promise<void> {
+    const payload: SyncLowStockAlertDto = { organization_id, product_id };
 
     try {
       await lastValueFrom(

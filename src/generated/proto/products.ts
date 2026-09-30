@@ -39,6 +39,7 @@ export enum StatusAlert {
 
 export interface ProductById {
   id: number;
+  organization_id: string;
 }
 
 export interface CreateProductRequest {
@@ -49,6 +50,7 @@ export interface CreateProductRequest {
   stock_actual?: number | undefined;
   stock_minimo?: number | undefined;
   proveedor: string;
+  organization_id: string;
 }
 
 /** Stock is only changed through AdjustStock */
@@ -60,6 +62,7 @@ export interface UpdateProductRequest {
   precio?: number | undefined;
   stock_minimo?: number | undefined;
   proveedor?: string | undefined;
+  organization_id: string;
 }
 
 export interface FindProductsRequest {
@@ -70,6 +73,7 @@ export interface FindProductsRequest {
   nombre?: string | undefined;
   activo?: boolean | undefined;
   stock_bajo?: boolean | undefined;
+  organization_id: string;
 }
 
 export interface AdjustStockRequest {
@@ -77,12 +81,14 @@ export interface AdjustStockRequest {
   tipo: TypeProductHistory;
   cantidad: number;
   motivo: string;
+  organization_id: string;
 }
 
 export interface FindAlertsRequest {
   page?: number | undefined;
   limit?: number | undefined;
   estado?: StatusAlert | undefined;
+  organization_id: string;
 }
 
 export interface Product {
@@ -129,7 +135,10 @@ export const PRODUCTS_PACKAGE_NAME = "products";
 
 /**
  * Field names are snake_case end to end (proto-loader keepCase + ts-proto
- * snakeToCamel=false) so they match the Prisma columns
+ * snakeToCamel=false) so they match the Prisma columns.
+ * Every request carries organization_id: the organization of the authenticated caller,
+ * set by client-gateway from the token verified by auth-ms. Rows of other organizations
+ * are never visible (a foreign id is NOT_FOUND)
  */
 
 export interface ProductsServiceClient {
@@ -150,7 +159,10 @@ export interface ProductsServiceClient {
 
 /**
  * Field names are snake_case end to end (proto-loader keepCase + ts-proto
- * snakeToCamel=false) so they match the Prisma columns
+ * snakeToCamel=false) so they match the Prisma columns.
+ * Every request carries organization_id: the organization of the authenticated caller,
+ * set by client-gateway from the token verified by auth-ms. Rows of other organizations
+ * are never visible (a foreign id is NOT_FOUND)
  */
 
 export interface ProductsServiceController {

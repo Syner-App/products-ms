@@ -23,18 +23,18 @@ export class ProductsController {
   }
 
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'FindOne')
-  findOne(@Payload() { id }: ProductByIdDto) {
-    return this.productsService.findOne(id);
+  findOne(@Payload() { organization_id, id }: ProductByIdDto) {
+    return this.productsService.findOne(organization_id, id);
   }
 
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'Update')
-  update(@Payload() { id, ...updateProductDto }: UpdateProductDto) {
-    return this.productsService.update(id, updateProductDto);
+  update(@Payload() { organization_id, id, ...updateProductDto }: UpdateProductDto) {
+    return this.productsService.update(organization_id, id, updateProductDto);
   }
 
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'Remove')
-  remove(@Payload() { id }: ProductByIdDto) {
-    return this.productsService.remove(id);
+  remove(@Payload() { organization_id, id }: ProductByIdDto) {
+    return this.productsService.remove(organization_id, id);
   }
 
   @GrpcMethod(PRODUCTS_SERVICE_NAME, 'AdjustStock')

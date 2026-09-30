@@ -3,7 +3,10 @@ syntax = "proto3";
 package products;
 
 // Field names are snake_case end to end (proto-loader keepCase + ts-proto
-// snakeToCamel=false) so they match the Prisma columns
+// snakeToCamel=false) so they match the Prisma columns.
+// Every request carries organization_id: the organization of the authenticated caller,
+// set by client-gateway from the token verified by auth-ms. Rows of other organizations
+// are never visible (a foreign id is NOT_FOUND)
 service ProductsService {
   rpc Create (CreateProductRequest) returns (Product);
   rpc FindAll (FindProductsRequest) returns (ProductList);
@@ -39,6 +42,7 @@ enum StatusAlert {
 
 message ProductById {
   int32 id = 1;
+  string organization_id = 2;
 }
 
 message CreateProductRequest {
@@ -49,6 +53,7 @@ message CreateProductRequest {
   optional int32 stock_actual = 5;
   optional int32 stock_minimo = 6;
   string proveedor = 7;
+  string organization_id = 8;
 }
 
 // Stock is only changed through AdjustStock
@@ -60,6 +65,7 @@ message UpdateProductRequest {
   optional int32 precio = 5;
   optional int32 stock_minimo = 6;
   optional string proveedor = 7;
+  string organization_id = 8;
 }
 
 message FindProductsRequest {
@@ -70,6 +76,7 @@ message FindProductsRequest {
   optional string nombre = 5;
   optional bool activo = 6;
   optional bool stock_bajo = 7;
+  string organization_id = 8;
 }
 
 message AdjustStockRequest {
@@ -77,12 +84,14 @@ message AdjustStockRequest {
   TypeProductHistory tipo = 2;
   int32 cantidad = 3;
   string motivo = 4;
+  string organization_id = 5;
 }
 
 message FindAlertsRequest {
   optional int32 page = 1;
   optional int32 limit = 2;
   optional StatusAlert estado = 3;
+  string organization_id = 4;
 }
 
 message Product {

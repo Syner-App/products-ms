@@ -12,7 +12,7 @@ RUN apt-get update \
 WORKDIR /app
 
 
-# Deps: every dependency, needed to build, test and run migrations/seed
+# Deps: every dependency, needed to build, test and run migrations
 FROM base AS deps
 # pnpm-workspace.yaml carries allowBuilds for the native build scripts
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -29,9 +29,10 @@ RUN cp .env.template .env && pnpm test && rm .env
 RUN pnpm build
 
 
-# Migrate: applies the migrations and the seed (upserts by codigo_sku, safe to rerun)
+# Migrate: applies the pending migrations (as the table owner, MIGRATE_DATABASE_URL).
+# New organizations start empty; the demo seed runs by hand (see prisma/seed.ts)
 FROM build AS migrate
-CMD ["sh", "-c", "pnpm prisma migrate deploy && pnpm prisma db seed"]
+CMD ["pnpm", "prisma", "migrate", "deploy"]
 
 
 # Prod deps: only `dependencies`

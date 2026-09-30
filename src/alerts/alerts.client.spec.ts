@@ -9,7 +9,7 @@ describe('AlertsClient', () => {
   const client = new AlertsClient(proxy as never);
 
   const failure = () =>
-    client.syncLowStock(4).then(
+    client.syncLowStock('6abd26a42d059ac027376ca1', 4).then(
       () => { throw new Error('expected a rejection'); },
       (e: unknown) => e as RpcException,
     );
@@ -20,8 +20,8 @@ describe('AlertsClient', () => {
   it('sends the request and waits for the reply', async () => {
     proxy.send.mockReturnValue(of({ ok: true }));
 
-    await expect(client.syncLowStock(4)).resolves.toBeUndefined();
-    expect(proxy.send).toHaveBeenCalledWith(AlertPatterns.SyncLowStock, { product_id: 4 });
+    await expect(client.syncLowStock('6abd26a42d059ac027376ca1', 4)).resolves.toBeUndefined();
+    expect(proxy.send).toHaveBeenCalledWith(AlertPatterns.SyncLowStock, { organization_id: '6abd26a42d059ac027376ca1', product_id: 4 });
   });
 
   it('maps a consumer error to UNAVAILABLE', async () => {

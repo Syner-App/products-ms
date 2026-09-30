@@ -18,8 +18,8 @@ export class AlertsController {
 
   // Request/reply over RabbitMQ (see AlertsClient): the reply unblocks the producer
   @MessagePattern(AlertPatterns.SyncLowStock, Transport.RMQ)
-  async syncLowStock(@Payload() { product_id }: SyncLowStockAlertDto) {
-    await this.alertsService.syncLowStock(product_id);
+  async syncLowStock(@Payload() { organization_id, product_id }: SyncLowStockAlertDto) {
+    await this.alertsService.syncLowStock(organization_id, product_id);
     return { ok: true };
   }
 }

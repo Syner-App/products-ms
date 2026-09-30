@@ -1,7 +1,7 @@
 import { syncLowStockAlert } from './low-stock-alert.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
 
-const product = { id: 4, nombre: 'Yogur Natural 500g', codigo_sku: 'LAC-002', stock_actual: 15, stock_minimo: 25 };
+const product = { id: 4, organization_id: '6abd26a42d059ac027376ca1', nombre: 'Yogur Natural 500g', codigo_sku: 'LAC-002', stock_actual: 15, stock_minimo: 25 };
 
 describe('syncLowStockAlert', () => {
   const tx = {
@@ -18,7 +18,12 @@ describe('syncLowStockAlert', () => {
     await sync({ ...product, stock_actual: 25 });
 
     expect(tx.alerts.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ product_id: 4, tipo: 'STOCK_BAJO', estado: 'ACTIVA' }),
+      data: expect.objectContaining({
+        organization_id: '6abd26a42d059ac027376ca1',
+        product_id: 4,
+        tipo: 'STOCK_BAJO',
+        estado: 'ACTIVA',
+      }),
     });
   });
 

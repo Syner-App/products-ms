@@ -30,15 +30,19 @@ export class ProductsService {
   ) { }
 
   async create(createProductDto: CreateProductDto) {
-    const product = await this.prisma.product.create({ data: createProductDto });
-    await this.alertsClient.syncLowStock(product.id);
+    const { organization_id } = createProductDto;
+    const product = await this.prisma.withTenant(organization_id, (tx) =>
+      tx.product.create({ data: createProductDto }),
+    );
+    await this.alertsClient.syncLowStock(organization_id, product.id);
     return this.toProductResponse(product);
   }
 
   async findAll(findProductsDto: FindProductsDto) {
-    const { page, limit, categoria, proveedor, nombre, activo, stock_bajo } = findProductsDto;
+    const { organization_id, page, limit, categoria, proveedor, nombre, activo, stock_bajo } = findProductsDto;
 
     const where: Prisma.ProductWhereInput = {
+      organization_id,
       activo: activo ?? true,
       categoria,
       proveedor: proveedor ? { contains: proveedor, mode: 'insensitive' } : undefined,
@@ -51,14 +55,15 @@ export class ProductsService {
           : { gt: this.prisma.product.fields.stock_minimo },
     };
 
-    const total = await this.prisma.product.count({ where });
-
-    const products = await this.prisma.product.findMany({
-      where,
-      take: limit,
-      skip: (page! - 1) * limit!,
-      orderBy: { id: 'asc' },
-    });
+    const [total, products] = await this.prisma.withTenant(organization_id, async (tx) => [
+      await tx.product.count({ where }),
+      await tx.product.findMany({
+        where,
+        take: limit,
+        skip: (page! - 1) * limit!,
+        orderBy: { id: 'asc' },
+      }),
+    ] as const);
 
     return {
       data: products.map((product) => this.toProductResponse(product)),
@@ -70,41 +75,44 @@ export class ProductsService {
     };
   }
 
-  async findOne(id: number) {
-    return this.toProductResponse(await this.findActive(id));
-  }
-
-  async update(id: number, updateProductDto: Omit<UpdateProductDto, 'id'>) {
-    await this.findActive(id);
-
-    const product = await this.prisma.product.update({
-      where: { id },
-      data: updateProductDto,
-    });
-    // stock_minimo may have changed
-    await this.alertsClient.syncLowStock(product.id);
+  async findOne(organization_id: string, id: number) {
+    const product = await this.prisma.withTenant(organization_id, (tx) => this.findActive(tx, organization_id, id));
     return this.toProductResponse(product);
   }
 
-  async remove(id: number) {
-    await this.findActive(id);
+  async update(organization_id: string, id: number, updateProductDto: Omit<UpdateProductDto, 'id' | 'organization_id'>) {
+    const product = await this.prisma.withTenant(organization_id, async (tx) => {
+      await this.findActive(tx, organization_id, id);
+      return tx.product.update({
+        where: { id, organization_id },
+        data: updateProductDto,
+      });
+    });
+    // stock_minimo may have changed
+    await this.alertsClient.syncLowStock(organization_id, product.id);
+    return this.toProductResponse(product);
+  }
 
-    const product = await this.prisma.product.update({
-      where: { id },
-      data: { activo: false },
+  async remove(organization_id: string, id: number) {
+    const product = await this.prisma.withTenant(organization_id, async (tx) => {
+      await this.findActive(tx, organization_id, id);
+      return tx.product.update({
+        where: { id, organization_id },
+        data: { activo: false },
+      });
     });
     return this.toProductResponse(product);
   }
 
   // Records the movement in the history and keeps the STOCK_BAJO alert in sync
-  async adjustStock({ id, tipo, cantidad, motivo }: AdjustStockDto) {
-    const product = await this.prisma.$transaction(async (tx) => {
-      const current = await this.findActive(id, tx);
+  async adjustStock({ organization_id, id, tipo, cantidad, motivo }: AdjustStockDto) {
+    const product = await this.prisma.withTenant(organization_id, async (tx) => {
+      const current = await this.findActive(tx, organization_id, id);
 
       if (tipo === TypeProductHistory.salida) {
         // Conditional update: never lets the stock go negative, even concurrently
         const { count } = await tx.product.updateMany({
-          where: { id, stock_actual: { gte: cantidad } },
+          where: { id, organization_id, stock_actual: { gte: cantidad } },
           data: { stock_actual: { decrement: cantidad } },
         });
         if (count === 0) {
@@ -115,23 +123,26 @@ export class ProductsService {
         }
       } else {
         await tx.product.update({
-          where: { id },
+          where: { id, organization_id },
           data: { stock_actual: { increment: cantidad } },
         });
       }
 
-      await tx.productHistory.create({ data: { product_id: id, tipo, cantidad, motivo } });
+      await tx.productHistory.create({ data: { organization_id, product_id: id, tipo, cantidad, motivo } });
 
-      return tx.product.findUniqueOrThrow({ where: { id } });
+      return tx.product.findUniqueOrThrow({ where: { id, organization_id } });
     });
 
-    await this.alertsClient.syncLowStock(id);
+    await this.alertsClient.syncLowStock(organization_id, id);
     return this.toProductResponse(product);
   }
 
-  // Purchase order saga: the product must exist and be active to be ordered
-  async validateProduct(id: number) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+  // Purchase order saga: the product must exist, be active and belong to the organization
+  // of the purchase order to be ordered
+  async validateProduct(organization_id: string, id: number) {
+    const product = await this.prisma.withTenant(organization_id, (tx) =>
+      tx.product.findUnique({ where: { id, organization_id } }),
+    );
 
     if (!product || !product.activo) {
       throw new RpcException({
@@ -146,12 +157,12 @@ export class ProductsService {
   // Purchase order saga: the goods arrived, so the stock goes up even if the
   // product was deactivated meanwhile. Returns false for a duplicate delivery; the
   // alert is synced either way, so a redelivery after a failed sync repairs it
-  async receivePurchaseOrder({ purchaseOrderId, producto_id, cantidad }: PurchaseOrderReceivedEvent) {
+  async receivePurchaseOrder({ organization_id, purchaseOrderId, producto_id, cantidad }: PurchaseOrderReceivedEvent) {
     const motivo = purchaseOrderReceivedMotivo(purchaseOrderId);
 
-    const applied = await this.prisma.$transaction(async (tx) => {
+    const applied = await this.prisma.withTenant(organization_id, async (tx) => {
       const alreadyApplied = await tx.productHistory.findFirst({
-        where: { product_id: producto_id, motivo },
+        where: { organization_id, product_id: producto_id, motivo },
         select: { id: true },
       });
       if (alreadyApplied) {
@@ -160,23 +171,24 @@ export class ProductsService {
       }
 
       await tx.product.update({
-        where: { id: producto_id },
+        where: { id: producto_id, organization_id },
         data: { stock_actual: { increment: cantidad } },
       });
       await tx.productHistory.create({
-        data: { product_id: producto_id, tipo: TypeProductHistory.entrada, cantidad, motivo },
+        data: { organization_id, product_id: producto_id, tipo: TypeProductHistory.entrada, cantidad, motivo },
       });
 
       this.logger.log(`Purchase order #${purchaseOrderId}: +${cantidad} to product #${producto_id}`);
       return true;
     });
 
-    await this.alertsClient.syncLowStock(producto_id);
+    await this.alertsClient.syncLowStock(organization_id, producto_id);
     return applied;
   }
 
-  private async findActive(id: number, tx: Prisma.TransactionClient = this.prisma) {
-    const product = await tx.product.findUnique({ where: { id, activo: true } });
+  // A product of another organization is NOT_FOUND, like a missing one
+  private async findActive(tx: Prisma.TransactionClient, organization_id: string, id: number) {
+    const product = await tx.product.findUnique({ where: { id, organization_id, activo: true } });
 
     if (!product) {
       throw new RpcException({

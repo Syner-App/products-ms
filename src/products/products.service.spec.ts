@@ -6,9 +6,11 @@ import { PrismaService } from '../prisma/prisma-service.service.ts';
 import { AlertsClient } from '../alerts/alerts.client.ts';
 
 const purchaseOrderId = '6f1c1c9e-2f5b-4c1a-9a47-6a2b1f3c8d10';
+const organization_id = '6abd26a42d059ac027376ca1';
 
 const yogur = {
   id: 4,
+  organization_id,
   nombre: 'Yogur Natural 500g',
   codigo_sku: 'LAC-002',
   categoria: 'Lacteos',
@@ -34,8 +36,8 @@ describe('ProductsService', () => {
       fields: { stock_minimo: 'stock_minimo_ref' },
     },
     productHistory: { create: vi.fn(), findFirst: vi.fn() },
-    // Interactive transactions run the callback with the same mock
-    $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
+    // Tenant transactions run the callback with the same mock
+    withTenant: vi.fn((_organizationId: string, callback: (tx: unknown) => unknown) => callback(prisma)),
   };
 
   const alertsClient = { syncLowStock: vi.fn() };
@@ -55,11 +57,13 @@ describe('ProductsService', () => {
     service = module.get<ProductsService>(ProductsService);
   });
 
-  it('findOne throws a NOT_FOUND RpcException when the product does not exist', async () => {
+  it('findOne throws a NOT_FOUND RpcException when the product does not exist in the organization', async () => {
     prisma.product.findUnique.mockResolvedValue(null);
 
-    const error = await service.findOne(99).catch((e: unknown) => e);
+    const error = await service.findOne(organization_id, 99).catch((e: unknown) => e);
 
+    expect(prisma.withTenant).toHaveBeenCalledWith(organization_id, expect.any(Function));
+    expect(prisma.product.findUnique).toHaveBeenCalledWith({ where: { id: 99, organization_id, activo: true } });
     expect(error).toBeInstanceOf(RpcException);
     expect((error as RpcException).getError()).toMatchObject({ code: status.NOT_FOUND });
   });
@@ -67,7 +71,7 @@ describe('ProductsService', () => {
   it('findOne serializes dates as ISO strings', async () => {
     prisma.product.findUnique.mockResolvedValue(yogur);
 
-    await expect(service.findOne(4)).resolves.toMatchObject({
+    await expect(service.findOne(organization_id, 4)).resolves.toMatchObject({
       createdAt: '2026-09-29T00:00:00.000Z',
       updatedAt: undefined,
     });
@@ -78,6 +82,7 @@ describe('ProductsService', () => {
     prisma.product.findMany.mockResolvedValue([yogur]);
 
     const result = await service.findAll({
+      organization_id,
       page: 1,
       limit: 10,
       categoria: 'Lacteos',
@@ -86,6 +91,7 @@ describe('ProductsService', () => {
     });
 
     const where = {
+      organization_id,
       activo: true,
       categoria: 'Lacteos',
       proveedor: undefined,
@@ -103,7 +109,7 @@ describe('ProductsService', () => {
       prisma.product.updateMany.mockResolvedValue({ count: 0 });
 
       const error = await service
-        .adjustStock({ id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' })
+        .adjustStock({ organization_id, id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' })
         .catch((e: unknown) => e);
 
       expect((error as RpcException).getError()).toMatchObject({ code: status.FAILED_PRECONDITION });
@@ -116,31 +122,31 @@ describe('ProductsService', () => {
       prisma.product.updateMany.mockResolvedValue({ count: 1 });
       prisma.product.findUniqueOrThrow.mockResolvedValue({ ...yogur, stock_actual: 20 });
 
-      await service.adjustStock({ id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' });
+      await service.adjustStock({ organization_id, id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' });
 
       expect(prisma.product.updateMany).toHaveBeenCalledWith({
-        where: { id: 4, stock_actual: { gte: 20 } },
+        where: { id: 4, organization_id, stock_actual: { gte: 20 } },
         data: { stock_actual: { decrement: 20 } },
       });
       expect(prisma.productHistory.create).toHaveBeenCalledWith({
-        data: { product_id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' },
+        data: { organization_id, product_id: 4, tipo: 'salida', cantidad: 20, motivo: 'Venta' },
       });
-      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(organization_id, 4);
       expect(alertsClient.syncLowStock.mock.invocationCallOrder[0])
-        .toBeGreaterThan(prisma.$transaction.mock.invocationCallOrder[0]);
+        .toBeGreaterThan(prisma.withTenant.mock.invocationCallOrder[0]);
     });
 
     it('records an entrada and syncs the alert', async () => {
       prisma.product.findUnique.mockResolvedValue(yogur);
       prisma.product.findUniqueOrThrow.mockResolvedValue({ ...yogur, stock_actual: 65 });
 
-      await service.adjustStock({ id: 4, tipo: 'entrada', cantidad: 50, motivo: 'Reposición' });
+      await service.adjustStock({ organization_id, id: 4, tipo: 'entrada', cantidad: 50, motivo: 'Reposición' });
 
       expect(prisma.product.update).toHaveBeenCalledWith({
-        where: { id: 4 },
+        where: { id: 4, organization_id },
         data: { stock_actual: { increment: 50 } },
       });
-      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(organization_id, 4);
     });
 
     it('propagates a failed alert sync after committing the stock', async () => {
@@ -150,7 +156,7 @@ describe('ProductsService', () => {
       alertsClient.syncLowStock.mockRejectedValue(rpcError);
 
       await expect(
-        service.adjustStock({ id: 4, tipo: 'entrada', cantidad: 50, motivo: 'Reposición' }),
+        service.adjustStock({ organization_id, id: 4, tipo: 'entrada', cantidad: 50, motivo: 'Reposición' }),
       ).rejects.toBe(rpcError);
       expect(prisma.productHistory.create).toHaveBeenCalled();
     });
@@ -160,13 +166,14 @@ describe('ProductsService', () => {
     it('returns an active product', async () => {
       prisma.product.findUnique.mockResolvedValue(yogur);
 
-      await expect(service.validateProduct(4)).resolves.toBe(yogur);
+      await expect(service.validateProduct(organization_id, 4)).resolves.toBe(yogur);
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({ where: { id: 4, organization_id } });
     });
 
     it('throws INVALID_ARGUMENT for an inactive product', async () => {
       prisma.product.findUnique.mockResolvedValue({ ...yogur, activo: false });
 
-      const error = await service.validateProduct(4).catch((e: unknown) => e);
+      const error = await service.validateProduct(organization_id, 4).catch((e: unknown) => e);
 
       expect((error as RpcException).getError()).toEqual({
         code: status.INVALID_ARGUMENT,
@@ -176,7 +183,7 @@ describe('ProductsService', () => {
   });
 
   describe('receivePurchaseOrder', () => {
-    const event = { purchaseOrderId, producto_id: 4, cantidad: 30 };
+    const event = { organization_id, purchaseOrderId, producto_id: 4, cantidad: 30 };
 
     it('adds the stock with an entrada keyed by the purchase order', async () => {
       prisma.productHistory.findFirst.mockResolvedValue(null);
@@ -186,13 +193,14 @@ describe('ProductsService', () => {
 
       expect(prisma.productHistory.create).toHaveBeenCalledWith({
         data: {
+          organization_id,
           product_id: 4,
           tipo: 'entrada',
           cantidad: 30,
           motivo: purchaseOrderReceivedMotivo(purchaseOrderId),
         },
       });
-      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(organization_id, 4);
     });
 
     it('ignores a duplicate delivery without adding the stock twice', async () => {
@@ -203,7 +211,7 @@ describe('ProductsService', () => {
       expect(prisma.product.update).not.toHaveBeenCalled();
       expect(prisma.productHistory.create).not.toHaveBeenCalled();
       // A redelivery after a failed sync repairs the alert
-      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(4);
+      expect(alertsClient.syncLowStock).toHaveBeenCalledWith(organization_id, 4);
     });
   });
 });
