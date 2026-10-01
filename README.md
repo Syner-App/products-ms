@@ -22,6 +22,10 @@ El contrato del servicio está definido en [`src/proto/products.proto`](src/prot
 | `AdjustStock` | Registra una `entrada` o `salida` (`cantidad`, `motivo`) en `historial_productos`. Una salida mayor al stock responde `FAILED_PRECONDITION`. |
 | `FindAlerts`  | Lista alertas con paginación y filtro opcional por `estado` (`ACTIVA`, `RESUELTA`). |
 
+### Ventas de finance-ms
+
+finance-ms registra las ventas del negocio y publica `finance.sale.registered` con los insumos que consumió cada receta (`consumos: [{ producto_id, cantidad }]`). products-ms los descuenta como salidas, con las mismas reglas de `AdjustStock`, en una sola transacción: si un producto no tiene stock suficiente o está inactivo, no se descuenta nada y responde `finance.sale.stock.rejected` con el motivo; si todo se descuenta, responde `finance.sale.stock.applied`. El `motivo` del historial (`Venta <saleId>`) evita descontar dos veces la misma venta. El evento llega por la misma cola `products.purchase-orders`.
+
 ### Alertas de stock bajo
 
 Cada cambio de stock (crear, actualizar el mínimo, ajustar, recibir una orden de compra) solicita la sincronización de la alerta por **RabbitMQ en modo request/reply (síncrono)**: tras el commit, `AlertsClient` hace `send('alerts.sync-low-stock', { product_id })` a la cola `products.alerts` y espera la respuesta del consumidor (`AlertsController`), que ejecuta `syncLowStockAlert` ([`src/alerts/low-stock-alert.ts`](src/alerts/low-stock-alert.ts)) sobre el producto leído de la BD. Si no hay respuesta en 5 s la llamada falla con `DEADLINE_EXCEEDED` (o `UNAVAILABLE` si el consumidor devuelve error); el cambio de stock ya quedó guardado y la alerta se corrige en el siguiente cambio. El seed llama a `syncLowStockAlert` directamente, sin broker:

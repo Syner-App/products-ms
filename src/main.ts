@@ -11,8 +11,8 @@ import { PrismaExceptionFilter } from './common/index.ts';
 async function bootstrap() {
   const logger = new Logger('Main')
 
-  // Hybrid app: gRPC for the gateway + RabbitMQ for the purchase order saga and the
-  // stock alert requests (no HTTP server)
+  // Hybrid app: gRPC for the gateway + RabbitMQ for the purchase order saga, the sales of
+  // finance-ms and the stock alert requests (no HTTP server)
   const app = await NestFactory.create(AppModule);
 
   // Global enhancers must be registered before connectMicroservice() so

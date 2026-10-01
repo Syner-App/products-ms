@@ -9,7 +9,7 @@ import { PrismaService } from '../prisma/prisma-service.service.ts';
 import { AlertsClient } from '../alerts/alerts.client.ts';
 import type { Prisma, Product } from '../generated/prisma/client.ts';
 import { TypeProductHistory } from '../generated/prisma/enums.ts';
-import type { PurchaseOrderReceivedEvent } from '../common/index.ts';
+import type { PurchaseOrderReceivedEvent, SaleRegisteredEvent } from '../common/index.ts';
 
 // The STOCK_BAJO alert is synced over RabbitMQ (AlertsClient) after each commit, never
 // inside the transaction: the consumer uses its own connection and would not see
@@ -19,6 +19,14 @@ import type { PurchaseOrderReceivedEvent } from '../common/index.ts';
 // the idempotency key: a redelivered purchase-order.received adds no stock twice
 export const purchaseOrderReceivedMotivo = (purchaseOrderId: string) =>
   `Orden de compra ${purchaseOrderId} recibida`;
+
+// Motivo of the salidas recorded for a finance-ms sale, and its idempotency key
+export const saleConsumptionMotivo = (saleId: string) => `Venta ${saleId}`;
+
+export type SaleConsumptionResult = { applied: true } | { applied: false; reason: string };
+
+// Rolls back the sale's transaction when one of its products cannot be discounted
+class SaleConsumptionRejected extends Error {}
 
 @Injectable()
 export class ProductsService {
@@ -184,6 +192,66 @@ export class ProductsService {
 
     await this.alertsClient.syncLowStock(organization_id, producto_id);
     return applied;
+  }
+
+  // finance-ms sale (finance.sale.registered): discounts the supplies of its recipes with
+  // the same rules as a salida of AdjustStock (active product of the organization, stock
+  // never negative, history). All or nothing: when one product cannot be discounted the
+  // whole sale is rejected and nothing changes. Idempotent: the history motivo
+  // (Venta <saleId>) is the dedup key, so a redelivered or retried sale is discounted once
+  async consumeSale({ organization_id, saleId, consumos }: SaleRegisteredEvent): Promise<SaleConsumptionResult> {
+    const motivo = saleConsumptionMotivo(saleId);
+
+    // One salida per product, in id order so concurrent sales lock their rows in the same order
+    const quantities = new Map<number, number>();
+    for (const { producto_id, cantidad } of consumos) {
+      quantities.set(producto_id, (quantities.get(producto_id) ?? 0) + cantidad);
+    }
+    const productIds = [...quantities.keys()].sort((a, b) => a - b);
+
+    let result: SaleConsumptionResult;
+    try {
+      result = await this.prisma.withTenant(organization_id, async (tx) => {
+        const alreadyApplied = await tx.productHistory.findFirst({
+          where: { organization_id, product_id: productIds[0], motivo },
+          select: { id: true },
+        });
+        if (alreadyApplied) {
+          this.logger.warn(`Sale #${saleId} was already discounted from the stock`);
+          return { applied: true } as const;
+        }
+
+        for (const id of productIds) {
+          const cantidad = quantities.get(id)!;
+          const { count } = await tx.product.updateMany({
+            where: { id, organization_id, activo: true, stock_actual: { gte: cantidad } },
+            data: { stock_actual: { decrement: cantidad } },
+          });
+          if (count === 0) {
+            const product = await tx.product.findUnique({ where: { id, organization_id } });
+            throw new SaleConsumptionRejected(
+              !product || !product.activo
+                ? `Product #${id} not found or inactive`
+                : `Insufficient stock for product #${id}: ${product.stock_actual} available, ${cantidad} requested`,
+            );
+          }
+          await tx.productHistory.create({
+            data: { organization_id, product_id: id, tipo: TypeProductHistory.salida, cantidad, motivo },
+          });
+        }
+
+        this.logger.log(`Sale #${saleId}: discounted ${productIds.length} product(s) from the stock`);
+        return { applied: true } as const;
+      });
+    } catch (error) {
+      if (!(error instanceof SaleConsumptionRejected)) throw error;
+      this.logger.warn(`Sale #${saleId} rejected: ${error.message}`);
+      return { applied: false, reason: error.message };
+    }
+
+    // Also on a duplicate delivery, so a redelivery after a failed sync repairs the alerts
+    for (const id of productIds) await this.alertsClient.syncLowStock(organization_id, id);
+    return result;
   }
 
   // A product of another organization is NOT_FOUND, like a missing one

@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RpcException } from '@nestjs/microservices';
 import { status } from '@grpc/grpc-js';
-import { ProductsService, purchaseOrderReceivedMotivo } from './products.service.js';
+import { ProductsService, purchaseOrderReceivedMotivo, saleConsumptionMotivo } from './products.service.js';
 import { PrismaService } from '../prisma/prisma-service.service.ts';
 import { AlertsClient } from '../alerts/alerts.client.ts';
 
 const purchaseOrderId = '6f1c1c9e-2f5b-4c1a-9a47-6a2b1f3c8d10';
 const organization_id = '6abd26a42d059ac027376ca1';
+const saleId = '5f0c6b8e-1d3a-4f6e-9b2a-7c1d2e3f4a5b';
 
 const yogur = {
   id: 4,
@@ -212,6 +213,80 @@ describe('ProductsService', () => {
       expect(prisma.productHistory.create).not.toHaveBeenCalled();
       // A redelivery after a failed sync repairs the alert
       expect(alertsClient.syncLowStock).toHaveBeenCalledWith(organization_id, 4);
+    });
+  });
+  describe('consumeSale', () => {
+    // Bags of ice (#7) and cups (#8) of a finance-ms sale; #8 appears twice
+    const event = {
+      organization_id,
+      saleId,
+      consumos: [
+        { producto_id: 8, cantidad: 30 },
+        { producto_id: 7, cantidad: 1 },
+        { producto_id: 8, cantidad: 10 },
+      ],
+    };
+
+    it('discounts every product once, with the sale as motivo, and syncs the alerts', async () => {
+      prisma.productHistory.findFirst.mockResolvedValue(null);
+      prisma.product.updateMany.mockResolvedValue({ count: 1 });
+
+      await expect(service.consumeSale(event)).resolves.toEqual({ applied: true });
+
+      expect(prisma.product.updateMany.mock.calls.map(([args]) => args)).toEqual([
+        { where: { id: 7, organization_id, activo: true, stock_actual: { gte: 1 } }, data: { stock_actual: { decrement: 1 } } },
+        { where: { id: 8, organization_id, activo: true, stock_actual: { gte: 40 } }, data: { stock_actual: { decrement: 40 } } },
+      ]);
+      expect(prisma.productHistory.create).toHaveBeenCalledWith({
+        data: { organization_id, product_id: 8, tipo: 'salida', cantidad: 40, motivo: saleConsumptionMotivo(saleId) },
+      });
+      expect(alertsClient.syncLowStock.mock.calls).toEqual([
+        [organization_id, 7],
+        [organization_id, 8],
+      ]);
+    });
+
+    it('rejects the whole sale when a product has not enough stock', async () => {
+      prisma.productHistory.findFirst.mockResolvedValue(null);
+      prisma.product.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+      prisma.product.findUnique.mockResolvedValue({ ...yogur, id: 8, stock_actual: 12 });
+
+      await expect(service.consumeSale(event)).resolves.toEqual({
+        applied: false,
+        reason: 'Insufficient stock for product #8: 12 available, 40 requested',
+      });
+      // The transaction rolls back, and no alert changes
+      expect(alertsClient.syncLowStock).not.toHaveBeenCalled();
+    });
+
+    it('rejects a product that is inactive or of another organization', async () => {
+      prisma.productHistory.findFirst.mockResolvedValue(null);
+      prisma.product.updateMany.mockResolvedValue({ count: 0 });
+      prisma.product.findUnique.mockResolvedValue(null);
+
+      await expect(service.consumeSale(event)).resolves.toEqual({
+        applied: false,
+        reason: 'Product #7 not found or inactive',
+      });
+    });
+
+    it('ignores a duplicate delivery without discounting twice', async () => {
+      prisma.productHistory.findFirst.mockResolvedValue({ id: 'history-1' });
+
+      await expect(service.consumeSale(event)).resolves.toEqual({ applied: true });
+
+      expect(prisma.productHistory.findFirst).toHaveBeenCalledWith({
+        where: { organization_id, product_id: 7, motivo: saleConsumptionMotivo(saleId) },
+        select: { id: true },
+      });
+      expect(prisma.product.updateMany).not.toHaveBeenCalled();
+      expect(alertsClient.syncLowStock).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates an unexpected error so the message is retried', async () => {
+      prisma.productHistory.findFirst.mockRejectedValue(new Error('connection lost'));
+
+      await expect(service.consumeSale(event)).rejects.toThrow('connection lost');
     });
   });
 });
