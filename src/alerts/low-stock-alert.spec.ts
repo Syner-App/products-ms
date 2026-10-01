@@ -5,7 +5,7 @@ const product = { id: 4, organization_id: '6abd26a42d059ac027376ca1', nombre: 'Y
 
 describe('syncLowStockAlert', () => {
   const tx = {
-    alerts: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    alerts: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   };
   const sync = (snapshot: typeof product) =>
     syncLowStockAlert(tx as unknown as Prisma.TransactionClient, snapshot);
@@ -14,9 +14,11 @@ describe('syncLowStockAlert', () => {
 
   it('opens a STOCK_BAJO alert when the stock reaches the minimum', async () => {
     tx.alerts.findFirst.mockResolvedValue(null);
+    tx.alerts.create.mockResolvedValue({ id: 'alert-1' });
 
-    await sync({ ...product, stock_actual: 25 });
+    const change = await sync({ ...product, stock_actual: 25 });
 
+    expect(change).toEqual({ type: 'created', alert: { id: 'alert-1' } });
     expect(tx.alerts.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organization_id: '6abd26a42d059ac027376ca1',
@@ -30,19 +32,22 @@ describe('syncLowStockAlert', () => {
   it('does not duplicate an active alert', async () => {
     tx.alerts.findFirst.mockResolvedValue({ id: 'alert-1' });
 
-    await sync(product);
+    const change = await sync(product);
 
+    expect(change).toBeNull();
     expect(tx.alerts.create).not.toHaveBeenCalled();
-    expect(tx.alerts.updateMany).not.toHaveBeenCalled();
+    expect(tx.alerts.update).not.toHaveBeenCalled();
   });
 
   it('resolves the active alert once the stock is above the minimum', async () => {
     tx.alerts.findFirst.mockResolvedValue({ id: 'alert-1' });
+    tx.alerts.update.mockResolvedValue({ id: 'alert-1', estado: 'RESUELTA' });
 
-    await sync({ ...product, stock_actual: 26 });
+    const change = await sync({ ...product, stock_actual: 26 });
 
-    expect(tx.alerts.updateMany).toHaveBeenCalledWith({
-      where: { product_id: 4, tipo: 'STOCK_BAJO', estado: 'ACTIVA' },
+    expect(change).toEqual({ type: 'resolved', alert: { id: 'alert-1', estado: 'RESUELTA' } });
+    expect(tx.alerts.update).toHaveBeenCalledWith({
+      where: { id: 'alert-1' },
       data: { estado: 'RESUELTA' },
     });
   });
@@ -50,9 +55,10 @@ describe('syncLowStockAlert', () => {
   it('does nothing when the stock is fine and there is no alert', async () => {
     tx.alerts.findFirst.mockResolvedValue(null);
 
-    await sync({ ...product, stock_actual: 100 });
+    const change = await sync({ ...product, stock_actual: 100 });
 
+    expect(change).toBeNull();
     expect(tx.alerts.create).not.toHaveBeenCalled();
-    expect(tx.alerts.updateMany).not.toHaveBeenCalled();
+    expect(tx.alerts.update).not.toHaveBeenCalled();
   });
 });
