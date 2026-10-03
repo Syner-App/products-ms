@@ -26,11 +26,11 @@ describe('AlertsService.syncLowStock', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    tx.product.findUniqueOrThrow.mockResolvedValue({ id: 4, organization_id });
+    tx.product.findUniqueOrThrow.mockResolvedValue({ id: 4, organization_id, proveedor: 'Lácteos Andinos', stock_minimo: 25 });
     eventsClient.emit.mockReturnValue(of(undefined));
   });
 
-  it('publishes alert.created with ISO dates', async () => {
+  it('publishes alert.created with ISO dates and the product snapshot', async () => {
     sync.mockResolvedValue({ type: 'created', alert } as never);
 
     await service.syncLowStock(organization_id, 4);
@@ -38,6 +38,7 @@ describe('AlertsService.syncLowStock', () => {
     expect(eventsClient.emit).toHaveBeenCalledWith(AlertEvents.Created, {
       organization_id,
       alert: expect.objectContaining({ id: 'alert-1', createdAt: '2026-10-01T10:00:00.000Z', updatedAt: undefined }),
+      product: { proveedor: 'Lácteos Andinos', stock_minimo: 25 },
     });
   });
 

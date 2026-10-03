@@ -4,7 +4,7 @@ import { lastValueFrom, timeout } from 'rxjs';
 import { PrismaService } from '../prisma/prisma-service.service.ts';
 import type { Alerts } from '../generated/prisma/client.ts';
 import { PRODUCTS_EVENTS_CLIENT, PUBLISH_TIMEOUT_MS } from '../config/index.ts';
-import { AlertEvents, type AlertEventPayload, type AlertNotification } from '../common/index.ts';
+import { AlertEvents, type AlertEventPayload, type AlertNotification, type AlertProductSnapshot } from '../common/index.ts';
 import { FindAlertsDto } from './dto/find-alerts.dto.ts';
 import { syncLowStockAlert, type LowStockAlertChange } from './low-stock-alert.ts';
 
@@ -45,21 +45,21 @@ export class AlertsService {
   // Reads the committed product so out-of-order requests never apply a stale snapshot.
   // The change is published after the commit, so the gateway never pushes a rolled back alert
   async syncLowStock(organization_id: string, product_id: number) {
-    const change = await this.prisma.withTenant(organization_id, async (tx) => {
+    const { change, product } = await this.prisma.withTenant(organization_id, async (tx) => {
       const product = await tx.product.findUniqueOrThrow({ where: { id: product_id, organization_id } });
-      return syncLowStockAlert(tx, product);
+      return { change: await syncLowStockAlert(tx, product), product };
     });
 
-    await this.publish(organization_id, change);
+    await this.publish(organization_id, change, { proveedor: product.proveedor, stock_minimo: product.stock_minimo });
   }
 
   // Best effort: the alert is already stored and GET /alerts returns it, so a failed
   // publish is only logged and never fails the stock change that triggered it
-  private async publish(organization_id: string, change: LowStockAlertChange) {
+  private async publish(organization_id: string, change: LowStockAlertChange, product: AlertProductSnapshot) {
     if (!change) return;
 
     const pattern = change.type === 'created' ? AlertEvents.Created : AlertEvents.Resolved;
-    const payload: AlertEventPayload = { organization_id, alert: this.toAlertResponse(change.alert) };
+    const payload: AlertEventPayload = { organization_id, alert: this.toAlertResponse(change.alert), product };
     try {
       await lastValueFrom(this.eventsClient.emit(pattern, payload).pipe(timeout(PUBLISH_TIMEOUT_MS)), {
         defaultValue: undefined,
